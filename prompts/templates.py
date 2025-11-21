@@ -61,7 +61,11 @@ Filename: index.html
 ```html
 ...
 ```
-Rules: Clean, semantic code. Modern practices."""
+Rules: 
+1. Clean, semantic code. Modern practices.
+2. NO PLACEHOLDERS. Write the FULL code.
+3. Do not use comments like "// ... rest of code".
+4. Ensure all tags are closed and syntax is correct."""
 
     @staticmethod
     def backend_coder(task: str, context: dict) -> str:
@@ -74,7 +78,11 @@ Filename: app.py
 ```python
 ...
 ```
-Rules: Secure, efficient. Handle errors."""
+Rules: 
+1. Secure, efficient. Handle errors.
+2. NO PLACEHOLDERS. Write the FULL code.
+3. Do not use comments like "# ... implementation".
+4. Ensure all imports are present."""
 
     @staticmethod
     def terminal_agent(task: str, context: dict) -> str:

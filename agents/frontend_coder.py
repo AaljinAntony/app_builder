@@ -36,6 +36,7 @@ class FrontendCoder:
     def _parse_and_save_files(self, response: str) -> list:
         """
         Parses response for 'Filename: <name>' and code blocks, then writes files.
+        Validates content before writing to avoid placeholders.
         """
         files = []
         # Regex to find Filename: <name> followed by code block
@@ -45,15 +46,62 @@ class FrontendCoder:
         
         for filename, code in matches:
             filename = filename.strip()
-            # Remove any path components to ensure writing to current dir (security/safety)
-            # Actually, subdirectories might be valid (e.g. src/index.js), but for now let's trust the agent
-            # or just ensure it doesn't go up directories.
+            code = code.strip()
+            
+            # Validation: Check if content is a placeholder
+            if not self._is_valid_code(code, filename):
+                logger.warning(f"FrontendCoder: Skipping {filename} - appears to be placeholder/comment-only")
+                continue
             
             # Write file
-            if write_file(filename, code.strip()):
+            if write_file(filename, code):
                 files.append(filename)
-                logger.info(f"FrontendCoder: Wrote {filename}")
+                logger.info(f"FrontendCoder: Wrote {filename} ({len(code)} chars)")
             else:
                 logger.error(f"FrontendCoder: Failed to write {filename}")
                 
         return files
+    
+    def _is_valid_code(self, code: str, filename: str) -> bool:
+        """
+        Validates if code is real implementation or just placeholder.
+        Returns False if it appears to be placeholder/comment-only.
+        """
+        # Check 1: Minimum length (too short = likely placeholder)
+        if len(code) < 50:
+            return False
+        
+        # Check 2: Look for placeholder patterns
+        placeholder_patterns = [
+            r"//\s*\.\.\.",  # // ...
+            r"#\s*\.\.\.",   # # ...
+            r"/\*.*\*/\s*$", # Only /* comment */
+            r"<!--.*-->\s*$", # Only <!-- comment -->
+        ]
+        
+        for pattern in placeholder_patterns:
+            if re.search(pattern, code, re.DOTALL):
+                # If entire content matches placeholder, reject
+                non_comment = re.sub(pattern, "", code, flags=re.DOTALL).strip()
+                if len(non_comment) < 20:
+                    return False
+        
+        # Check 3: Check for common placeholder comments
+        placeholder_keywords = [
+            "rest of code",
+            "implementation",
+            "add your code here",
+            "placeholder",
+            "todo",
+        ]
+        
+        code_lower = code.lower()
+        # If code is mostly just these keywords, it's likely placeholder
+        if any(keyword in code_lower for keyword in placeholder_keywords):
+            # Count non-whitespace characters
+            non_ws = len(code.replace(" ", "").replace("\n", "").replace("\t", ""))
+            if non_ws < 100:  # Very short with placeholder keywords = bad
+                return False
+        
+        return True
+

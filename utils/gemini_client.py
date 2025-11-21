@@ -85,6 +85,7 @@ def generate(prompt: str, temperature: float = 0.4, max_tokens: int = 4096) -> s
 def extract_json(text: str) -> dict:
     """
     Extracts and parses JSON from text.
+    Handles markdown code blocks and searches for JSON objects.
     
     Args:
         text: The text containing JSON.
@@ -93,22 +94,55 @@ def extract_json(text: str) -> dict:
         The parsed dictionary.
     """
     try:
-        # Remove markdown code blocks
-        cleaned_text = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(cleaned_text)
+        # 1. Try direct parsing first
+        return json.loads(text)
     except json.JSONDecodeError:
-        try:
-            # Try to find the first '{' and last '}'
-            start_idx = text.find('{')
-            end_idx = text.rfind('}')
-            if start_idx != -1 and end_idx != -1:
-                json_str = text[start_idx : end_idx + 1]
-                return json.loads(json_str)
-            else:
-                raise ValueError("No JSON object found in text.")
-        except Exception as e:
-            logger.error(f"Error extracting JSON: {e}")
-            raise
+        pass
+
+    # 2. Try removing markdown code blocks
+    clean_text = text
+    if "```" in text:
+        # Remove ```json, ```python, etc.
+        lines = text.splitlines()
+        new_lines = []
+        in_block = False
+        for line in lines:
+            if line.strip().startswith("```"):
+                in_block = not in_block
+                continue
+            if in_block:
+                new_lines.append(line)
+        
+        # If we extracted something from blocks, try parsing that
+        if new_lines:
+            block_text = "\n".join(new_lines).strip()
+            try:
+                return json.loads(block_text)
+            except json.JSONDecodeError:
+                pass
+    
+    # 3. Brute force: Find the first '{' and last '}'
+    try:
+        start_idx = text.find('{')
+        end_idx = text.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            json_str = text[start_idx : end_idx + 1]
+            return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+
+    # 4. Fallback: Try to fix common issues (like single quotes)
+    try:
+        if start_idx != -1 and end_idx != -1:
+            json_str = text[start_idx : end_idx + 1]
+            # Replace single quotes with double quotes (risky but sometimes necessary for bad LLM output)
+            fixed_str = json_str.replace("'", '"') 
+            return json.loads(fixed_str)
+    except Exception:
+        pass
+
+    logger.error(f"Failed to extract JSON from text: {text[:100]}...")
+    raise ValueError("No JSON object found in text.")
 
 def generate_with_retry(prompt: str, max_retries: int = 3, **kwargs) -> str:
     """
