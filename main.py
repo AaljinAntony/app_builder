@@ -1,8 +1,11 @@
 import os
 import sys
 import re
+import asyncio
 from dotenv import load_dotenv
 from utils.logger import logger
+from utils.mcp_client import MCPClient, set_mcp_client
+import utils.file_ops as file_ops
 from agents.agent_manager import AgentManager
 from agents.language_selector import LanguageSelector
 from agents.planner import Planner
@@ -12,6 +15,8 @@ from agents.terminal_agent import TerminalAgent
 from agents.tester import Tester
 from agents.debugger import Debugger
 from agents.documentation import DocumentationAgent
+from agents.git_agent import GitAgent
+from agents.researcher import Researcher
 
 load_dotenv()
 
@@ -38,8 +43,13 @@ class MultiAgentBuilder:
             "completed_steps": []
         }
         
+        # MCP Integration
+        self.mcp_client = None
+        self.mcp_enabled = os.getenv("ENABLE_MCP", "false").lower() == "true"
+        
         logger.info("MultiAgentBuilder initialized")
         logger.info(f"Max loops: {self.max_loops}, Max errors: {self.max_errors}")
+        logger.info(f"MCP enabled: {self.mcp_enabled}")
     
     def start(self, user_prompt: str) -> None:
         """
@@ -68,9 +78,17 @@ class MultiAgentBuilder:
         logger.info(f"Working directory: {os.getcwd()}")
         
         try:
+            # Initialize MCP if enabled
+            if self.mcp_enabled:
+                self._init_mcp_client()
+            
             # Run the agent loop
             self._run_agent_loop()
         finally:
+            # Cleanup MCP connections
+            if self.mcp_client:
+                asyncio.run(self.mcp_client.close())
+            
             # Return to original directory
             os.chdir(original_dir)
             logger.info(f"Returned to: {os.getcwd()}")
@@ -99,6 +117,25 @@ class MultiAgentBuilder:
         
         logger.info(f"Project name: {name}")
         return name
+    
+    def _init_mcp_client(self):
+        """Initialize MCP client and connect to configured servers."""
+        try:
+            logger.info("Initializing MCP client...")
+            self.mcp_client = MCPClient()
+            
+            # Run async initialization
+            asyncio.run(self.mcp_client.initialize())
+            
+            # Register MCP client with file_ops
+            file_ops.set_mcp_client(self.mcp_client)
+            set_mcp_client(self.mcp_client)
+            
+            logger.info("MCP client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize MCP client: {e}")
+            logger.warning("Continuing without MCP (graceful fallback)")
+            self.mcp_client = None
     
     def _run_agent_loop(self) -> None:
         """
@@ -164,12 +201,47 @@ class MultiAgentBuilder:
                         logger.error(f"Strike {self.error_count}: Debugger itself failed")
                         
                 elif self.error_count >= 3:
-                    # Strike 3: Would call Researcher (not implemented)
-                    logger.error("=" * 70)
-                    logger.error("Max errors reached — stopping multi-agent workflow.")
-                    logger.error("Researcher agent not implemented — terminating.")
-                    logger.error("=" * 70)
-                    break
+                    # Strike 3: Call Researcher for solutions
+                    logger.warning("=" * 70)
+                    logger.warning("Strike 3: Calling Researcher for error solutions")
+                    logger.warning("=" * 70)
+                    
+                    research_task = f"Research solution for: {self.state['last_error']}"
+                    research_result = self._execute_agent("Researcher", research_task)
+                    
+                    if research_result["success"]:
+                        solutions = research_result["output"].get("solutions", [])
+                        summary = research_result["output"].get("summary", "")
+                        
+                        logger.info("\n" + summary)
+                        
+                        # Try to apply the first high-confidence solution automatically
+                        if solutions:
+                            high_conf_solutions = [s for s in solutions if s.get('confidence') == 'high']
+                            if high_conf_solutions:
+                                logger.info("Attempting to apply high-confidence solution...")
+                                # Call debugger with researcher's suggestions
+                                debug_task = f"Apply solution: {high_conf_solutions[0]['steps'][0]}"
+                                debug_result = self._execute_agent("Debugger", debug_task)
+                                
+                                if debug_result["success"]:
+                                    logger.info("✓ Researcher solution applied successfully")
+                                    self.error_count = 0
+                                    self.state["last_action"] = "Debugger"
+                                else:
+                                    logger.error("Failed to apply researcher solution - terminating")
+                                    break
+                            else:
+                                logger.warning("No high-confidence solutions available - terminating")
+                                break
+                        else:
+                            logger.warning("No solutions found - terminating")
+                            break
+                    else:
+                        logger.error(f"Researcher failed: {research_result.get('error', 'Unknown error')}")
+                        logger.error("Terminating workflow after Strike 3")
+                        break
+
         
         # Check if max loops reached
         if self.loop_counter >= self.max_loops:
@@ -227,6 +299,14 @@ class MultiAgentBuilder:
                 
             elif agent_name == "DocumentationAgent":
                 agent = DocumentationAgent()
+                result = agent.run(task, self.project_path, context)
+                
+            elif agent_name == "Researcher":
+                agent = Researcher(self.mcp_client)
+                result = agent.run(task, self.project_path, context)
+                
+            elif agent_name == "GitAgent":
+                agent = GitAgent(self.mcp_client)
                 result = agent.run(task, self.project_path, context)
                 
             else:

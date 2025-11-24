@@ -116,3 +116,30 @@ Task: "{task}"
 Context: {json.dumps(context)}
 Output: Documentation in markdown.
 Rules: Clear, concise. Setup + usage."""
+
+    @staticmethod
+    def git_agent(task: str, context: dict) -> str:
+        return f"""Role: Git Agent
+Task: "{task}"
+Context: {json.dumps(context)}
+Output (JSON ONLY):
+{{"action": "commit", "message": "Generated project: [name]", "files": ["*"]}}
+Rules: 
+1. Initialize .git if not exists
+2. Create .gitignore for project language
+3. Commit all generated files with descriptive message
+4. Return repository status"""
+
+    @staticmethod
+    def researcher(task: str, context: dict) -> str:
+        return f"""Role: Researcher
+Task: "{task}"
+Context: {json.dumps(context)}
+Output: Analysis with potential solutions
+Rules:
+1. Analyze the error message thoroughly
+2. Search for similar issues and solutions
+3. Provide step-by-step fixes
+4. Include confidence level for each solution
+5. Prioritize solutions by likelihood of success"""
+

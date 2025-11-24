@@ -2,3 +2,4 @@ google-generativeai
 pytest
 python-dotenv
 ollama
+mcp>=0.9.0

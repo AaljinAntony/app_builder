@@ -76,7 +76,12 @@ class AgentManager:
             logger.info("AgentManager: No README.md → DocumentationAgent")
             next_agent = "DocumentationAgent"
         
-        # 9. Completion
+        # 9. Version Control (new with MCP integration)
+        elif not self._check_git_initialized(project_path):
+            logger.info("AgentManager: No .git → GitAgent")
+            next_agent = "GitAgent"
+        
+        # 10. Completion
         else:
             logger.info("AgentManager: All steps complete → FINISHED")
             next_agent = "FINISHED"
@@ -99,6 +104,7 @@ class AgentManager:
             "Tester": "Test report is missing." if not self._tests_failed(project_path) else "Debugging applied, re-running tests.",
             "Debugger": "Tests failed, triggering debugger.",
             "DocumentationAgent": "Project documentation is missing.",
+            "GitAgent": "Initializing version control for generated project.",
             "FINISHED": "All steps complete."
         }
         
@@ -154,3 +160,19 @@ class AgentManager:
         except Exception as e:
             logger.warning(f"AgentManager: Could not read TEST_REPORT.md: {e}")
             return False
+    
+    def _check_git_initialized(self, project_path: str) -> bool:
+        """
+        Helper: Check if git is initialized in the project directory.
+        
+        Args:
+            project_path: Path to project directory
+            
+        Returns:
+            bool: True if .git directory exists, False otherwise
+        """
+        if not project_path:
+            return False
+        
+        # Check for .git directory (we're in the project directory)
+        return os.path.exists(".git") and os.path.isdir(".git")
